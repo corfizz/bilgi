@@ -19,8 +19,8 @@ char delim = '\t';
 char *filename;
 FILE *fp;
 char *actions = NULL;
-int snooze = 3;
-int lines = 0;
+unsigned int snooze = 3;
+unsigned int lines = 0;
 int moveto = 0;
 int rateflag = 0;
 
@@ -50,6 +50,11 @@ int main(int argc, char *argv[]) {
 	int randomflag = 0;
 	int continueflag = 0;
 	
+	if (argv[1][1] == 'h') {
+		printf("Usage: bilgi [OPTIONS] [INPUT FILE]\n\t-a ACTIONS\tlist the actions to perform on the card\n\t-b\t\tput the card to the back after acting\n\t-c\t\tcontinue to the next card\n\t-d CHAR\t\tspecify the delimiter\n\t-h\t\tshow this help\n\t-i\t\tmove card interactively after actions are complete\n\t-m NUM[%%]\tmove card to position NUM after acting\n\t-n NUM-[NUM]\tuse cards in the given range\n\t-r\t\tuse a random card\n\t-s\t\tshuffle the deck prior to acting\n\t-t NUM\t\tspecify the sleep timeout in seconds\n");
+		exit(0);
+	}
+	
 	srand((unsigned int)time((time_t *)NULL)); /* Initialise the random seed */
 	filename = argv[argc-1]; /* filename has to be final argument */
 	if ((fp = fopen(filename,"r")) == NULL) die("File could not be opened.");
@@ -63,7 +68,9 @@ int main(int argc, char *argv[]) {
 			case 'a':
 				i++;
 				for (d = argv[i]; *d; d++)
-					if (!isdigit(*d) && !isspace(*d) && *d != 'w' && *d != 's' && *d != '-') die("Invalid actions listing.");
+					if (isdigit(*d)) j++;
+				if (j == 0) die("Invalid actions listing.");
+				//	if (!isdigit(*d) && !isspace(*d) && *d != 'w' && *d != 's' && *d != '-') die("Invalid actions listing.");
 				actions = malloc(sizeof(char)*strlen(argv[i]));
 				strcpy(actions,argv[i]);
 				break;
@@ -79,10 +86,6 @@ int main(int argc, char *argv[]) {
 				} else j = 3;
 				if (argv[i][j]) die("Delimiter must be a single character.");
 				delim = argv[i][j-1];
-				break;
-			case 'h':
-				printf("Usage: bilgi [OPTIONS] [INPUT FILE]\n\t-a ACTIONS\tlist the actions to perform on the card\n\t-b\t\tput the card to the back after acting\n-c\t\tcontinue to the next card\n\t-d [CHAR]\t\tspecify the delimiter\n\t-h\t\tshow this help\n\t-m NUM\t\tmove card to position NUM after acting\n\t-n NUM-[NUM]\tuse cards in the given range\n\t-r\t\tuse a random card\n\t-s\t\tshuffle the deck prior to acting\n\t-t\t\tspecify the sleep timeout in seconds\n");
-				exit(0);
 				break;
 			case 'i':
 				rateflag = 1;
@@ -161,7 +164,7 @@ int main(int argc, char *argv[]) {
 	if (continueflag) {
 		while (startline < endline) {
 			if (randomflag) startline = rand()%lines + 1;
-			else startline++;
+			else if (moveto == 0) startline++;
 			usecard(startline);
 		}
 	}
@@ -183,6 +186,7 @@ void usecard (int startline) {
 	int num; int num2;
 	int fieldsprinted = 0;
 	char word[MAX];
+	char input[MAX];
 	int fields = 1;
 	int i = 0;
 	int j = 0;
@@ -242,9 +246,14 @@ void usecard (int startline) {
 	if (rateflag) {
 		moveto = 0; /* interactive rating overrides manual rating */
 		printf("move to: ");
-		while (isdigit(c = getchar())) moveto = moveto*10 + c-'0';
-		if (c == '%') moveto = (moveto*lines)/100;
-		if (moveto == 0) moveto = 1;
+		fgets(input,MAX,stdin);
+		if (sscanf(input,"+%d",&moveto)) moveto = moveto + startline;
+		else if (sscanf(input,"-%d",&moveto)) moveto = startline - moveto;
+		else if (input[0] == 'b' && input[1] == '\n') moveto = lines; /* shortcut for send to back */
+		else if (sscanf(input,"%d",&moveto));
+		else printf("Invalid move position.\n");
+		if (input[(strlen(input))-2] == '%') moveto = (moveto*lines)/100;
+		if (moveto <= 0) moveto = 1;
 	}
 	if (moveto) {
 		if (moveto > lines) printf("Invalid move position.\n");
@@ -257,26 +266,28 @@ void movecard(int startline,int moveto) {
 	int i = 1;
 	char card[MAX];
 	char c;
+	unsigned int flag = 0;
 	
 	gotoline(startline);
 	fgets(card,MAX,fp);
 	rewind(fp);
 	while ((c = fgetc(fp)) != EOF) {
-		if (i == moveto) {
-			fputs(card,tempfp);
-			moveto = 0;
+		if (i == moveto && !flag) {
+			fputs(card,tempfp); /* paste the card in its new position */
+			flag = 1; /* This must only happen once */
 		}
 		if (i == startline) {
-			while ((c = fgetc(fp)) != '\n');
-			moveto++;
-		} else fputc(c,tempfp);
+			while ((c = fgetc(fp)) != '\n'); /* skip out the line in its original position */
+			moveto++; /* preserve the semantics of moveto */
+		} else fputc(c,tempfp); /* write to the temporary file */
 		if (c == '\n') i++;
 	}
-	if (i == moveto) fputs(card,tempfp);
+	if (i == moveto) fputs(card,tempfp); /* paste the card if it has to go at the end */
 	fclose(fp);
 	fp = fopen(filename,"w+");
 	rewind(tempfp);
-	while ((c = fgetc(tempfp)) != EOF) fputc(c,fp);
+	while ((c = fgetc(tempfp)) != EOF) fputc(c,fp); /* copy the temp file to the original file */
+	fclose(tempfp); /* temp file gets automatically deleted at this point */
 	fclose(fp);
 	fp = fopen(filename,"r");
 }
