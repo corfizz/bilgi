@@ -15,6 +15,7 @@ To get bilgi to do anything at all, you need to supply a list of actions. This i
 
 Example:
 $ bilgi -a "1 w 2" mywords
+
 Prints the first field, then waits for ENTER to be pressed, then prints the second field of the first line of the file mywords. Note that "1 w 2", "1w2", "1,w,2" and others are all equivalent. The only characters that bilgi parses in the actions listing are numbers, 'w' and 't'.
 
 ## Options
@@ -30,8 +31,9 @@ Prints the first field, then waits for ENTER to be pressed, then prints the seco
 -r				use a random card
 -s				shuffle the deck prior to acting
 -t NUM			specify the sleep timeout in seconds
+-x REGEXP		only operate on lines matching REGEXP
 
 Moving a card works like this: if you enter NUM, the card will now be at position NUM in the deck. If you enter +NUM, it will be placed NUM cards further down the deck. If you enter -NUM, it will be moved up. The special character 'b' stands for the end of the deck. Moving cards around is 'destructive': it replaces the input file immediately to reflect the new order of the lines.
 
 ## Utility value
-You don't have to use bilgi as a flashcard program. You could just use it as a utility for manipulating delimited data, including CSV and TSV files. bilgi could then be considered a more powerful alternative to cut, or a more limited alternative to sed.
+You don't have to use bilgi as a flashcard program. You could just use it as a utility for manipulating delimited data, including CSV and TSV files. bilgi could then be considered a more powerful alternative to cut, or a more limited alternative to sed/awk.

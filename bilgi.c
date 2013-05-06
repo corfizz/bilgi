@@ -1,3 +1,5 @@
+#define _XOPEN_SOURCE
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,9 +12,12 @@
 /* Prototypes */
 void die(const char* e);
 void gotoline(int line);
+void yankarg(char **store,char *arg);
 void usecard(int startline);
 void movecard(int startline,int moveto);
 void shuffledeck();
+int randommatching(char *search);
+int nextmatching(int i,char *search);
 
 /* Global variables */
 char delim = '\t';
@@ -22,7 +27,6 @@ char *actions = NULL;
 unsigned int snooze = 3;
 unsigned int lines = 0;
 int moveto = 0;
-int rateflag = 0;
 
 /* Utility functions */
 void die(const char* e) {
@@ -40,6 +44,15 @@ void gotoline(int line) {
 	ungetc(c,fp);
 }
 
+void yankarg(char **store,char *arg) {
+	*store = malloc((strlen(arg)+1)*sizeof(char));
+	if (*store == NULL) {
+		printf("Error with argument %s.\n",arg);
+		exit(1);
+	}
+	strcpy(*store,arg);
+}
+
 /* Main gubbins */
 int main(int argc, char *argv[]) {
 	char c;
@@ -49,14 +62,38 @@ int main(int argc, char *argv[]) {
 	int endline = 0;
 	int randomflag = 0;
 	int continueflag = 0;
+	int rateflag = 0;
+	unsigned int endspecified = 0;
+	unsigned int nolog = 0;
+	char *search = NULL;
+	char input[MAX];
+	char *store = NULL;
+	
+	char fieldget[MAX];
+	FILE *procbilgi = NULL;
 	
 	if (argv[1][1] == 'h') {
-		printf("Usage: bilgi [OPTIONS] [INPUT FILE]\n\t-a ACTIONS\tlist the actions to perform on the card\n\t-b\t\tput the card to the back after acting\n\t-c\t\tcontinue to the next card\n\t-d CHAR\t\tspecify the delimiter\n\t-h\t\tshow this help\n\t-i\t\tmove card interactively after actions are complete\n\t-m NUM[%%]\tmove card to position NUM after acting\n\t-n NUM-[NUM]\tuse cards in the given range\n\t-r\t\tuse a random card\n\t-s\t\tshuffle the deck prior to acting\n\t-t NUM\t\tspecify the sleep timeout in seconds\n");
+		printf("Usage: bilgi [OPTIONS] [INPUT FILE]\n\t-a ACTIONS\tlist the actions to perform on the card\n\t-b\t\tput the card to the back after acting\n\t-c\t\tcontinue to the next card\n\t-d CHAR\t\tspecify the delimiter\n\t-h\t\tshow this help\n\t-i\t\tmove card interactively after actions are complete\n\t-l\t\tdisable logging\n\t-m NUM[%%]\tmove card to position NUM after acting\n\t-n NUM-[NUM]\tuse cards in the given range\n\t-p\t\tuse the last card accessed, via the log file\n\t-r\t\tuse a random card\n\t-s\t\tshuffle the deck prior to acting\n\t-t NUM\t\tspecify the sleep timeout in seconds\n\t-x REGEXP\tonly operate on lines matching REGEXP\n");
 		exit(0);
 	}
 	
 	srand((unsigned int)time((time_t *)NULL)); /* Initialise the random seed */
-	filename = argv[argc-1]; /* filename has to be final argument */
+	
+	for (i=1; i<argc; i++) {
+		if (argv[i][0] == '-' && argv[i][1] == 'p') {
+			if ((procbilgi = popen("bilgi -l -n-1 -a \"2\" bilgi.log","r")) == NULL) die("Error calling bilgi.");
+			filename = malloc(MAX*sizeof(char));
+			fgets(filename,MAX,procbilgi);
+			pclose(procbilgi);
+			filename[(strlen(filename)-1)] = '\0'; /* remove newline character */
+			if ((procbilgi = popen("bilgi -l -n-1 -a \"4\" bilgi.log","r")) == NULL) die("Error calling bilgi.");
+			fgets(fieldget,MAX,procbilgi);
+			pclose(procbilgi);
+			startline = atoi(fieldget);
+		}
+	}
+	if (filename == NULL) filename = argv[argc-1]; /* filename has to be final argument */
+	
 	if ((fp = fopen(filename,"r")) == NULL) die("File could not be opened.");
 	while ((c = fgetc(fp)) != EOF)
 		if (c == '\n') lines++;  /* count the lines in the file */
@@ -70,8 +107,8 @@ int main(int argc, char *argv[]) {
 				for (d = argv[i]; *d; d++)
 					if (isdigit(*d)) j++;
 				if (j == 0) die("Invalid actions listing.");
-				//	if (!isdigit(*d) && !isspace(*d) && *d != 'w' && *d != 's' && *d != '-') die("Invalid actions listing.");
-				actions = malloc(sizeof(char)*strlen(argv[i]));
+				actions = malloc(sizeof(char)*(strlen(argv[i])+1));
+				if (actions == NULL) die("Invalid actions listing.");
 				strcpy(actions,argv[i]);
 				break;
 			case 'b':
@@ -90,11 +127,14 @@ int main(int argc, char *argv[]) {
 			case 'i':
 				rateflag = 1;
 				break;
+			case 'l':
+				nolog = 1;
+				break;
 			case 'm':
 				if (isdigit(argv[i][2])) d = argv[i]+2;
 				else {
 					i++;
-					if (i == (argc-1)) die("-s requires an argument.");
+					if (i == (argc-1)) die("-m requires an argument.");
 					d = argv[i];
 				}
 				while (*d >= '0' && *d <= '9') {
@@ -108,24 +148,21 @@ int main(int argc, char *argv[]) {
 				break;
 			case 'n':
 				if (randomflag) die("-n and -r are exclusive.");
-				if (isdigit(argv[i][2])) d = argv[i]+2;
+				if (isdigit(argv[i][2]) || argv[i][2] == '-') d = argv[i]+2;
 				else {
 					i++;
 					if (i == (argc-1)) die("-n requires an argument.");
 					d = argv[i];
 				}
-				while (*d >= '0' && *d <= '9') {
-					startline = startline*10 + *d-'0';
-					d++;
-				}
-				if (startline == 0) die("Invalid argument to -n.");
+				
+				yankarg(&store,d);
 				if (*d == '-') {
-					d++;
-					while (*d >= '0' && *d <= '9') {
-						endline = endline*10 + *d-'0';
-						d++;
-					}
-				}
+					sscanf((store+1),"%d",&startline);
+					startline = lines-(startline-1);
+				} else if (sscanf(store,"%d-%d",&startline,&endline) == 2);
+				else sscanf(store,"%d",&startline);
+				if (startline <= 0) die("Invalid argument to -n.");
+				free(store);
 				break;
 			case 'r':
 				if (startline) die("-n and -r are exclusive.");
@@ -148,28 +185,66 @@ int main(int argc, char *argv[]) {
 				}
 				if (snooze == 0) die("Invalid argument to -t.");
 				break;
+			case 'x':
+				i++;
+				yankarg(&search,argv[i]);
+				break;
 			default:
 				break;
 			}
 		}
 	}
-	if (actions == NULL) die("Invalid command.");
 
-	if (randomflag) startline = rand()%lines + 1;
-	if (startline == 0) startline++; /* Default is first line */
+	if (startline == 0) startline = 1; /* Default is first line */
 	if (startline > lines) die("Start line exceeds file length.");
+	if (endline) endspecified = 1;
+	else endline = lines;
+	if (!continueflag) endline = startline;
 	
-	usecard(startline);
-	if (endline == 0) endline = lines;
-	if (continueflag) {
-		while (startline < endline) {
-			if (randomflag) startline = rand()%lines + 1;
-			else if (moveto == 0) startline++;
-			usecard(startline);
+	char thetime[40];
+	FILE *log = fopen("bilgi.log","a");
+	if (!nolog && log == NULL) die("Cannot open log file for writing.");
+	
+	while (startline <= endline) {
+		if (randomflag) {
+			if (search) startline = randommatching(search);
+			else startline = rand()%lines + 1;
+		} else if (search) startline = nextmatching(startline,search);
+		
+		if (!startline || (endspecified && startline > endline)) die("No other matching line.");
+		
+		if (actions) usecard(startline);
+		if (rateflag) {
+			moveto = 0; /* interactive rating overrides manual rating */
+			printf("move to: ");
+			fgets(input,MAX,stdin);
+			if (sscanf(input,"+%d",&moveto)) moveto = moveto + startline;
+			else if (sscanf(input,"-%d",&moveto)) moveto = startline - moveto;
+			else if (input[0] == 'b' && input[1] == '\n') moveto = lines; /* shortcut for send to back */
+			else if (sscanf(input,"%d",&moveto));
+			else printf("Invalid move position.\n");
+			if (input[(strlen(input))-2] == '%') moveto = (moveto*lines)/100;
+			if (moveto <= 0) moveto = 1;
 		}
+		if (moveto) {
+			if (moveto > lines) {
+				moveto = startline;
+				printf("Invalid move position.\n");
+			} else movecard(startline,moveto);
+		}
+		if (!nolog) {
+			time_t tp = time(NULL);
+			struct tm tim = *localtime(&tp);
+			strftime(thetime,40,"%Y-%m-%d %H:%M:%S",&tim);
+			fprintf(log,"%s\t%s\t%d\t%d\n",thetime,filename,startline,(moveto ? moveto : startline));
+		}
+		if (!moveto || !continueflag) startline++;
 	}
+
 	free(actions);
+	free(search);
 	fclose(fp);
+	fclose(log);
 	exit(0);
 }
 
@@ -181,12 +256,43 @@ void shuffledeck() {
 	}
 }
 
+int randommatching(char *search) {
+	int startline = rand()%lines + 1;
+	startline = nextmatching(startline,search);
+	if (startline == 0) {
+		rewind(fp);
+		startline = nextmatching(startline,search);
+	}
+	return startline;
+}
+
+int nextmatching(int i,char *search) {
+	char *searchcmd = NULL;
+	FILE *grepstream;
+	char card[MAX];
+	
+	if (i == 0) i = 1;
+	gotoline(i);
+	while (i <= lines) {
+		fgets(card,MAX,fp);
+		searchcmd = malloc((strlen(search)+20)*sizeof(char));
+		strcpy(searchcmd,"grep -Eq \"");
+		strcat(searchcmd,search);
+		strcat(searchcmd,"\"");
+		grepstream = popen(searchcmd,"w");
+		if (grepstream == NULL) die("Error calling grep.");
+		fputs(card,grepstream);
+		if (pclose(grepstream) == 0) return i;
+		i++;
+	}
+	return 0;
+}
+
 void usecard (int startline) {
 	char *a = actions;
 	int num; int num2;
 	int fieldsprinted = 0;
 	char word[MAX];
-	char input[MAX];
 	int fields = 1;
 	int i = 0;
 	int j = 0;
@@ -239,26 +345,10 @@ void usecard (int startline) {
 		} else if (*a == 't') {
 			fflush(stdout);
 			sleep(snooze);
-		}
+		} else if (*a == '\0') break;
 		a++;
 	}
 	printf("\n");
-	if (rateflag) {
-		moveto = 0; /* interactive rating overrides manual rating */
-		printf("move to: ");
-		fgets(input,MAX,stdin);
-		if (sscanf(input,"+%d",&moveto)) moveto = moveto + startline;
-		else if (sscanf(input,"-%d",&moveto)) moveto = startline - moveto;
-		else if (input[0] == 'b' && input[1] == '\n') moveto = lines; /* shortcut for send to back */
-		else if (sscanf(input,"%d",&moveto));
-		else printf("Invalid move position.\n");
-		if (input[(strlen(input))-2] == '%') moveto = (moveto*lines)/100;
-		if (moveto <= 0) moveto = 1;
-	}
-	if (moveto) {
-		if (moveto > lines) printf("Invalid move position.\n");
-		else movecard(startline,moveto);
-	}
 }
 
 void movecard(int startline,int moveto) {
