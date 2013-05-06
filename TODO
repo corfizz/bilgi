@@ -1,0 +1,8 @@
+bilgi
+-----
+
+* allow searching a given field using syntax -x2 "search"
+* allow editing particular fields using the actions syntax "1e 2e" etc.
+* investigate web interface and smartphone support
+* make an example script involving tags/categories
+* example script with web lookup
