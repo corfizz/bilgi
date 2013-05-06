@@ -1,0 +1,30 @@
+#!/bin/bash
+
+# things the user may commonly wish to edit
+FILE=urduwords.txt
+CARDWIDTH=500
+FONT="-*-liberation sans-*-r-*-*-18-*-*-*-*-*-*-*"
+BG="#444455"
+
+# working out the screen position
+LINE=$(xrandr -q | grep Screen)
+WIDTH=$(echo ${LINE} | awk '{ print $8 }')
+HEIGHT=$(echo ${LINE} | awk '{ print $10 }' | awk -F"," '{ print $1 }')
+XPOS=$(($WIDTH/2-$CARDWIDTH/2))
+YPOS=$(($HEIGHT/2-150))
+
+# clicking the card or pressing return will continue to the next
+EVENTS="onstart=grabkeys;button1=togglecollapse;button3=exit;key_Return=uncollapse;key_Escape=ungrabkeys,exit"
+
+RET=0
+# the loop continues until you click cancel in the zenity dialog
+while [ "$RET" -eq 0 ]
+do
+FRONT=$(bilgi -a "1" "$FILE")
+BACK=$(bilgi -a "2" "$FILE")
+echo -e "$FRONT\n\n$BACK\n" | dzen2 -l 3 -p -bg "$BG" -fg white -ta c -sa c -x $XPOS -y $YPOS -w $CARDWIDTH -e "$EVENTS" -fn "$FONT"
+
+MOVETO=$(zenity --text="How well did you remember?" --scale)
+RET="$?"
+bilgi -m "$MOVETO"% -a "1 2" "$FILE"
+done
