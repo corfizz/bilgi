@@ -327,7 +327,7 @@ void usecard (int startline) {
 			for (i=1; i<=fields; i++) {
 				for (j=0;j < MAX;j++) /* (re-)initialise the string */
 					word[j] = '\0';
-				j = 0;
+				j = 0;				
 				while ((c = fgetc(fp)) != '\n' && c != delim && c != EOF) {
 					word[j] = c;
 					j++;
